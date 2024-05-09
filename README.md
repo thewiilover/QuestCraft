@@ -1,5 +1,5 @@
-! Notice !
-- Please Before Going and using my provided apks support the developers on patreon as they work hard to make Questcraft, Questcraft. -
+- ! Notice !
+- Please Before Going and using my provided apks support the developers on patreon as they work hard to make Questcraft, Questcraft.
 
 # QCXR XR Wrapper
 [![GPLv3 License](https://img.shields.io/badge/License-GPLv3-green.svg)](https://choosealicense.com/licenses/gpl-3.0/)
