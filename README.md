@@ -1,5 +1,7 @@
 - ! Notice !
 - Please Before Going and using my provided apks support the developers on patreon as they work hard to make Questcraft, Questcraft.
+- Their Patreon: https://www.patreon.com/QuestCraftXR
+- Also using these apk will provide you with absolutely no support on the discord, so this is your only warning!
 
 # QCXR XR Wrapper
 [![GPLv3 License](https://img.shields.io/badge/License-GPLv3-green.svg)](https://choosealicense.com/licenses/gpl-3.0/)
