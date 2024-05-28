@@ -7,6 +7,8 @@ using UnityEngine;
 public class SearchParser
 {
     public List<SearchResults> hits;
+    public int total_hits;
+
 }
 
 [Serializable]
@@ -16,6 +18,7 @@ public class SearchResults
     public string project_id;
     public string title;
     public string description;
+    public string author;
     public string icon_url;
     public List<string> versions;
 }
@@ -28,6 +31,8 @@ public class MetaParser
     public string icon_url;
     public string description;
     public string slug;
+    public string project_type;
+    public List<string> game_versions;
 }
 
 [Serializable]
@@ -94,7 +99,7 @@ public class PojlibInstance
     {
         // Mods can change at runtime
         List<PojlibMod> mods = new List<PojlibMod>();
-        foreach (var mod in raw.Get<AndroidJavaObject[]>("mods"))
+        foreach (var mod in raw.Get<AndroidJavaObject[]>("extProjects"))
         {
             mods.Add(PojlibMod.Parse(mod));
         }

@@ -1,17 +1,23 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 using TMPro;
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.Networking;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
 
 public class ModManager : MonoBehaviour
 {
     [SerializeField] private GameObject modPrefab;
+    [SerializeField] private GameObject modPagePrefab;
     [SerializeField] private GameObject modArray;
+    [SerializeField] private GameObject modInfoArray;
     [SerializeField] private GameObject modPage;
     [SerializeField] private APIHandler apiHandler;
     [SerializeField] private TextMeshProUGUI modDescription;
@@ -25,128 +31,245 @@ public class ModManager : MonoBehaviour
     [SerializeField] private GameObject errorMenu;
     [SerializeField] private GameObject downloadButton;
     public Texture2D errorTexture;
+    [SerializeField] private TMP_Dropdown instanceDropdown;
+    [SerializeField] private TMP_Dropdown mainMenuModDropdown;
+    [SerializeField] private TextMeshProUGUI instanceLabel;
+    
+    public GameObject modButton;
+    public GameObject modPacksButton;
+    public GameObject resourcePacksButton;
 
+    public TextMeshProUGUI statusText;
+
+    public int page;
     private string currModSlug;
+    private string[] currModVersions;
+    public bool isSearching;
+    
+    private void Start()
+    {
+        instanceDropdown.onValueChanged.AddListener(delegate
+        {
+            async Task RefreshStat()
+            {
+                Task.Delay(100);
+                InstanceButton.currInstName = instanceLabel.text;
+                if (modPage.activeSelf)
+                    HasModCheck(currModSlug, currModVersions);
+            }
+            RefreshStat();
+        });
+        
+        mainMenuModDropdown.onValueChanged.AddListener(delegate { SearchMods(); });
 
+        if (statusText == null)
+            statusText = new TextMeshProUGUI();
+        statusText.text = "";
+    }
+    
+    public string GetFilterOption()
+    {
+        List<Toggle> toggleButtons = new List<Toggle>
+        {
+            modButton.GetComponent<Toggle>(),
+            modPacksButton.GetComponent<Toggle>(),
+            resourcePacksButton.GetComponent<Toggle>(),
+        };
+
+        return (from button in toggleButtons where !button.interactable select button.name).FirstOrDefault();
+    }
+    
     private async void CreateMods()
     {
+        if (isSearching)
+            return;
+        isSearching = true;
+        statusText.text = "Searching..";
         ResetArray();
-        SearchParser searchParser = apiHandler.GetSearchedProjects();
 
-        foreach (SearchResults searchResults in searchParser.hits)
+        async Task GetResults()
         {
-            async Task SetModImage()
+            string currInstName;
+            string filterOption = GetFilterOption();
+
+            try
             {
-                UnityWebRequest modImageLink = UnityWebRequestTexture.GetTexture(searchResults.icon_url);
-                modImageLink.SendWebRequest();
+                currInstName = JNIStorage.GetInstance(InstanceButton.currInstName).versionName ?? JNIStorage.instance
+                    .instancesDropdown.options[JNIStorage.instance.instancesDropdown.value].text;
+            }
+            catch (NullReferenceException)
+            {
+                ShowError(
+                    "You must run this version of the game at least once before adding mods to the instance with Mod Manager!");
+                return;
+            }
 
-                //TODO: Remove artificial wait. 
-                while (!modImageLink.isDone)
-                {
-                    await Task.Delay(50);
-                }
+            List<string> facets = new List<string>
+            {
+                "[\"versions:" + currInstName + "\"]",
+                "[\"project_type:" + filterOption + "\"]"
+            };
 
-                if (modImageLink.result != UnityWebRequest.Result.Success)
-                {
-                    Debug.Log(modImageLink.error);
-                    return;
-                }
+            if (filterOption != "datapack" && filterOption != "resourcepack")
+                facets.Add("[\"categories:fabric\"]");
 
-                Texture modImageTexture = ((DownloadHandlerTexture)modImageLink.downloadHandler).texture;
+            //https://docs.modrinth.com/#tag/projects/operation/searchProjects
+            
+            string url = "https://api.modrinth.com/v2/search" +
+                         $"?query={searchQuery.text}" +
+                         $"&facets=[{String.Join(", ", facets)}]" +
+                         $"&offset={page*20}" +
+                         "&limit=20";
 
+            UnityWebRequest queryDownload = UnityWebRequest.Get(url);
+            queryDownload.SetRequestHeader("User-Agent", "QuestCraftPlusPlus/QuestCraft/" + Application.version + " (discord.gg/questcraft)");
+            queryDownload.SendWebRequest();
+
+            while (!queryDownload.isDone)
+                await Task.Delay(16);
+            if (queryDownload.result != UnityWebRequest.Result.Success)
+            {
+                Debug.Log(queryDownload.error);
+                statusText.text = "<color=red>An error occured";
+                return;
+            }
+
+            SearchParser searchParser = JsonConvert.DeserializeObject<SearchParser>(queryDownload.downloadHandler.text);
+            statusText.text = $"Found {searchParser.total_hits.ToString()} Results";
+            
+            if (searchParser.hits.Count == 0)
+            {
                 GameObject modObject = Instantiate(modPrefab, new Vector3(-10, -10, -10), Quaternion.identity);
-                modObject.GetComponentInChildren<RawImage>().texture = modImageTexture;
-                modObject.transform.GetChild(1).GetComponent<TextMeshProUGUI>().text = searchResults.title;
+                modObject.GetComponentInChildren<RawImage>().texture = errorTexture;
+                modObject.GetComponentInChildren<RawImage>().color = Color.yellow;
+                modObject.transform.GetChild(1).GetComponent<TextMeshProUGUI>().text = "No mods could be found!";
+                modObject.transform.GetChild(2).GetComponent<TextMeshProUGUI>().text = "Are you sure its the right name?";
+                modObject.transform.GetChild(3).gameObject.SetActive(false);
+                modObject.transform.SetParent(modArray.transform, false);
+                modObject.name = "ERROR";
+                return;
+            } 
+            
+            foreach (SearchResults searchResults in searchParser.hits)
+            {
+                GameObject modObject = Instantiate(modPrefab, new Vector3(-10, -10, -10), Quaternion.identity);
+                modObject.transform.GetChild(1).GetComponent<TextMeshProUGUI>().text = searchResults.title + " <size=75%>by " + searchResults.author;
                 modObject.transform.GetChild(2).GetComponent<TextMeshProUGUI>().text = searchResults.description;
                 modObject.transform.SetParent(modArray.transform, false);
                 modObject.name = searchResults.project_id;
-                
-                try
-                {
-                    bool hasMod = JNIStorage.apiClass.CallStatic<bool>("hasMod", JNIStorage.GetInstance(InstanceButton.currInstName).raw, searchResults.project_id);
-
-                    if (!hasMod)
-                    {
-                        modObject.transform.GetChild(3).gameObject.SetActive(false);
-                    }
-                    else 
-                    {
-                        modObject.transform.GetChild(3).gameObject.SetActive(true);
-                        modObject.transform.GetChild(3).GetComponent<Button>().onClick.AddListener(delegate { RemoveMod(searchResults.title); });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"An error occurred: {ex}");
-                    
-                    if (modObject != null)
-                    {
-                        modObject.transform.GetChild(3).gameObject.SetActive(false);
-                    }
-                }
-
+                modObject.transform.GetChild(3).gameObject.SetActive(false);
                 modObject.GetComponent<Button>().onClick.AddListener(delegate
                 {
                     EventSystem.current.SetSelectedGameObject(modObject);
                     GameObject mod = GameObject.Find(EventSystem.current.currentSelectedGameObject.transform.name);
-                    CreateModPage(mod.ToString().Replace("(UnityEngine.GameObject)", ""));
-					currModSlug = mod.ToString().Replace("(UnityEngine.GameObject)", "");
+                    currModSlug = mod.ToString().Replace("(UnityEngine.GameObject)", "");
+                    CreateModPage(currModSlug, mod.GetComponentInChildren<RawImage>(), searchResults.author);
                 });
-            }
-            await SetModImage();
-        }
+            
+                apiHandler.DownloadImage(searchResults.icon_url, modObject.GetComponentInChildren<RawImage>());
 
-        await Task.Delay(20);
-        if (modArray.transform.childCount == 0)
-        {
-            GameObject modObject = Instantiate(modPrefab, new Vector3(-10, -10, -10), Quaternion.identity);
-            modObject.GetComponentInChildren<RawImage>().texture = errorTexture;
-            modObject.GetComponentInChildren<RawImage>().color = Color.yellow;
-            modObject.transform.GetChild(1).GetComponent<TextMeshProUGUI>().text = "No mods could be found!";
-            modObject.transform.GetChild(2).GetComponent<TextMeshProUGUI>().text = "Are you sure its the right name?";
-            modObject.transform.GetChild(3).gameObject.SetActive(false);
-            modObject.transform.SetParent(modArray.transform, false);
-            modObject.name = "ERROR";
+                modObject.transform.GetChild(3).gameObject.SetActive(false);
+            }
+            
+            if (searchParser.total_hits > 20)
+            {
+                GameObject modPages = Instantiate(modPagePrefab);
+                modPages.transform.SetParent(modArray.transform, false);
+                modPages.name = "ModPages";
+                
+                //updating visibility
+                if (page == 0)
+                    modPages.transform.GetChild(0).gameObject.SetActive(false);
+                if (page-2 < 0)
+                    modPages.transform.GetChild(1).gameObject.SetActive(false);
+                if (page-1 < 0)
+                    modPages.transform.GetChild(2).gameObject.SetActive(false);
+                if (page+1 < 0)
+                    modPages.transform.GetChild(4).gameObject.SetActive(false);
+                if (page+2 < 0)
+                    modPages.transform.GetChild(5).gameObject.SetActive(false);
+                if (page == searchParser.total_hits / 20)
+                    modPages.transform.GetChild(6).gameObject.SetActive(false);
+                
+                //updating text
+                modPages.transform.GetChild(1).GetComponentInChildren<TextMeshProUGUI>().text = (page - 2).ToString();
+                modPages.transform.GetChild(2).GetComponentInChildren<TextMeshProUGUI>().text = (page - 1).ToString();
+                modPages.transform.GetChild(3).GetComponentInChildren<TextMeshProUGUI>().text = page.ToString();
+                modPages.transform.GetChild(4).GetComponentInChildren<TextMeshProUGUI>().text = (page + 1).ToString();
+                modPages.transform.GetChild(5).GetComponentInChildren<TextMeshProUGUI>().text = (page + 2).ToString();
+                
+                //button listeners
+                modPages.transform.GetChild(6).GetComponent<Button>().onClick.AddListener(PageUp);
+                modPages.transform.GetChild(0).GetComponent<Button>().onClick.AddListener(PageDown);
+            }
         }
+        await GetResults();
+        isSearching = false;
     }
 
-    public async void CreateModPage(string slug)
+    public void PageUp()
+    {
+        page++;
+        CreateMods();
+    }
+    
+    public void PageDown()
+    {
+        page--;
+        CreateMods();
+    }
+    
+    
+
+    async Task HasModCheck(string ModSlug, string[]  Fetchedmod = null)
+    {
+        if (Fetchedmod != null)
+        {
+            if (!Fetchedmod.Contains(JNIStorage.GetInstance(InstanceButton.currInstName).versionName))
+            {
+                downloadText.text = "No mod for version";
+                downloadButton.GetComponent<Button>().enabled = false;
+                return;
+            }
+        }
+        
+        if (JNIStorage.GetInstance(InstanceButton.currInstName) == null)
+        {
+            downloadText.text = "Instance Not Downloaded";
+            downloadButton.GetComponent<Button>().enabled = false;
+            return;
+        }
+
+        Debug.Log("Current instance: " + InstanceButton.currInstName + "\nChecking for mod " + ModSlug);
+        bool hasMod = JNIStorage.apiClass.CallStatic<bool>("hasExtraProject",
+            JNIStorage.GetInstance(InstanceButton.currInstName).raw, ModSlug);
+        downloadText.text = hasMod ? "Installed" : "Install";
+        downloadButton.GetComponent<Button>().enabled = !hasMod;
+    }
+
+    private void CreateModPage(string slug, RawImage image, string author)
     {
         MetaParser mp = apiHandler.GetModInfo(slug);
         instanceMenu.SetActive(false);
         modSearchMenu.SetActive(false);
         modPage.SetActive(true);
-
-        async Task GetSetTexture()
+        
+        modDescription.text = mp.description;
+        modTitle.text = mp.title + " <size=75%>by " + author;
+        modIDObject.text = mp.slug;
+        
+        modImage.texture = image.texture;
+        
+        Destroy(modImage.GetComponent<GifLoader>());
+        if (image.gameObject.TryGetComponent(out GifLoader loader))
         {
-            UnityWebRequest modImageLink = UnityWebRequestTexture.GetTexture(mp.icon_url);
-            modImageLink.SendWebRequest();
-
-            while (!modImageLink.isDone)
-            {
-                await Task.Delay(50);
-            }
-
-            Texture modImageTexture = ((DownloadHandlerTexture)modImageLink.downloadHandler).texture;
-            modDescription.text = mp.description;
-            modTitle.text = mp.title;
-            modImage.texture = modImageTexture;
-            modIDObject.text = mp.slug;
-
-            try
-            {
-                bool hasMod = JNIStorage.apiClass.CallStatic<bool>("hasMod", JNIStorage.GetInstance(InstanceButton.currInstName).raw, mp.slug);
-                downloadText.text = hasMod ? "Installed" : "Install";
-                downloadButton.GetComponent<Button>().enabled = !hasMod;
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"An error occurred: {ex}");
-                downloadText.text = "Install";
-            }
+            GifLoader gifLoader = modImage.AddComponent<GifLoader>();
+            gifLoader.LoadGifImage(loader.bytes);
         }
-
-        await GetSetTexture();
+        
+        currModSlug = mp.slug;
+        currModVersions = mp.game_versions.ToArray();
+        HasModCheck(currModSlug, currModVersions);
     }
     
     public void AddMod()
@@ -157,14 +280,11 @@ public class ModManager : MonoBehaviour
 
         foreach (MetaInfo metaInfo in modInfos)
         {
-            foreach (var file in metaInfo.files.Where(file => IsValidModFile(metaInfo, currentInstanceVer)))
+            foreach (var file in metaInfo.files.Where(file => IsValidModFile(metaInfo, mp, currentInstanceVer)))
             {
                 if (file.url.Contains(".mrpack"))
                 {
                     ProcessModpack(mp, file, currentInstanceVer);
-                } else if (file.url.Contains(".zip"))
-                {
-                    //ProcessResourcePack();
                 }
                 else
                 {
@@ -176,10 +296,18 @@ public class ModManager : MonoBehaviour
         }
     }
     
-    private bool IsValidModFile(MetaInfo metaInfo, string currentInstanceName)
+    private bool IsValidModFile(MetaInfo metaInfo, MetaParser metaParser, string instanceVersion)
     {
-        return metaInfo.game_versions.Contains(currentInstanceName)
-               && metaInfo.loaders.Contains("fabric");
+        if (metaParser.project_type is "mod" or "modpack")
+        {
+            return metaInfo.game_versions.Contains(instanceVersion)
+                   && metaInfo.loaders.Contains("fabric"); 
+        }
+        else
+        {
+            return true;
+        }
+
     }
 
     private void ProcessModFile(MetaParser mp, FileInfo file, MetaInfo metaInfo, string currentInstanceVer)
@@ -190,42 +318,29 @@ public class ModManager : MonoBehaviour
         DownloadDependenciesAndAddMod(mp, metaInfo, file.url, currentInstanceVer);
     }    
     
-    private void ProcessResourcePack(MetaParser mp, FileInfo file, MetaInfo metaInfo, string currentInstanceVer)
+    private void ProcessModpack(MetaParser mp, FileInfo file, string currentInstanceVer)
     {
-        Debug.Log($"modName: {mp.title} | modUrl: {file.url} | modVersion: {currentInstanceVer}");
-
-        AndroidJavaObject instance = LoadInstance();
-        if (instance == null) return;
-
-        DownloadDependenciesAndAddMod(mp, metaInfo, file.url, currentInstanceVer);
-    }
-    
-    private async void ProcessModpack(MetaParser mp, FileInfo file, string currentInstanceVer)
-    {
-        string path = Path.Combine(Application.persistentDataPath);
+        string path = Path.Combine(Application.persistentDataPath, "downloads");
         path = Path.Combine(path, mp.title + ".mrpack");
-        Debug.Log($"modName: {mp.title} | modUrl: {file.url} | modVersion: {currentInstanceVer} | modPatch: {path}");
+        Debug.Log($"modName: {mp.title} | modUrl: {file.url} | modVersion: {currentInstanceVer} | modPath: {path}");
         
-        Task DownloadModpackFile()
+        UnityWebRequest modpackFile = UnityWebRequest.Get(file.url);
+        modpackFile.SetRequestHeader("User-Agent", "QuestCraftPlusPlus/QuestCraft/" + Application.version + " (discord.gg/questcraft)");
+        DownloadHandlerFile dh = new DownloadHandlerFile(path);
+        dh.removeFileOnAbort = true;
+        modpackFile.downloadHandler = dh;
+        UnityWebRequestAsyncOperation op = modpackFile.SendWebRequest();
+
+        JNIStorage.instance.uiHandler.SetAndShowError(mp.title + " is downloading, please wait.");
+        op.completed += operation =>
         {
-            UnityWebRequest modpackFile = new UnityWebRequest(file.url);
-            modpackFile.method = UnityWebRequest.kHttpVerbGET;
-            DownloadHandlerFile dh = new DownloadHandlerFile(path);
-            dh.removeFileOnAbort = true;
-            modpackFile.downloadHandler = dh;
-            modpackFile.SendWebRequest();
-            return Task.CompletedTask;
-        }
+            AndroidJavaObject instance = LoadInstance();
+            if (instance == null) return;
 
-        await DownloadModpackFile();
-
-        AndroidJavaObject instance = LoadInstance();
-        if (instance == null) return;
-
-        JNIStorage.apiClass.CallStatic<AndroidJavaObject>("createNewInstance", JNIStorage.activity, JNIStorage.instancesObj, mp.title, mp.icon_url, path);
-        JNIStorage.instance.uiHandler.SetAndShowError(mp.title + " is now being created.");
-        JNIStorage.instance.UpdateInstances();
-        File.Delete(path);
+            JNIStorage.apiClass.CallStatic<AndroidJavaObject>("createNewInstance", JNIStorage.activity, JNIStorage.instancesObj, mp.title, mp.icon_url, path);
+            JNIStorage.instance.uiHandler.SetAndShowError(mp.title + " is now being created.");
+            JNIStorage.instance.UpdateInstances();
+        };
     }
 
     private AndroidJavaObject LoadInstance()
@@ -256,7 +371,7 @@ public class ModManager : MonoBehaviour
                     foreach (var depFile in validDepFiles)
                     {
                         PojlibInstance currInst = JNIStorage.GetInstance(InstanceButton.currInstName);
-                        JNIStorage.apiClass.CallStatic("addMod", JNIStorage.instancesObj, currInst.raw, slug, currentInstanceVer, depFile.url);
+                        JNIStorage.apiClass.CallStatic("addExtraProject", JNIStorage.instancesObj, currInst.raw, slug, currentInstanceVer, depFile.url, mp.project_type);
                         Debug.Log($"Downloading Dep with file url {depFile.url}");
                         break;
                     }
@@ -265,7 +380,7 @@ public class ModManager : MonoBehaviour
         }
 
         PojlibInstance inst = JNIStorage.GetInstance(InstanceButton.currInstName);
-        JNIStorage.apiClass.CallStatic("addMod", JNIStorage.instancesObj, inst.raw, mp.slug, currentInstanceVer, modUrl);
+        JNIStorage.apiClass.CallStatic("addExtraProject", JNIStorage.instancesObj, inst.raw, mp.slug, currentInstanceVer, modUrl, mp.project_type);
         UpdateUIAfterModAddition(mp.slug);
     }
 
@@ -274,12 +389,12 @@ public class ModManager : MonoBehaviour
         return depInfo.game_versions.Contains(currentInstanceVer)
                && !depFile.url.Contains(".mrpack")
                && depInfo.loaders.Contains("fabric")
-               && !JNIStorage.apiClass.CallStatic<bool>("hasMod", JNIStorage.GetInstance(InstanceButton.currInstName).raw, slug);
+               && !JNIStorage.apiClass.CallStatic<bool>("hasExtraProject", JNIStorage.GetInstance(InstanceButton.currInstName).raw, slug);
     }
 
     private void UpdateUIAfterModAddition(string slug)
     {
-        bool hasMod = JNIStorage.apiClass.CallStatic<bool>("hasMod", JNIStorage.GetInstance(InstanceButton.currInstName).raw, slug);
+        bool hasMod = JNIStorage.apiClass.CallStatic<bool>("hasExtraProject", JNIStorage.GetInstance(InstanceButton.currInstName).raw, slug);
         downloadText.text = "Installed";
         downloadButton.GetComponent<Button>().enabled = !hasMod;
 
@@ -298,14 +413,14 @@ public class ModManager : MonoBehaviour
     private void RemoveMod(string modName)
     {
         PojlibInstance currInstName = JNIStorage.GetInstance(InstanceButton.currInstName);
-        JNIStorage.apiClass.CallStatic<bool>("removeMod", JNIStorage.instancesObj, currInstName.raw, modName);
-        downloadText.text = "Install";
-        SearchMods();
-    }
+        JNIStorage.apiClass.CallStatic<bool>("removeExtraProject", JNIStorage.instancesObj, currInstName.raw, modName);
+             downloadText.text = "Install";
+             SearchMods();
+         }
 
     public void SearchMods()
     {
-        apiHandler.searchQuery = searchQuery.text;
+        page = 0;
         CreateMods();
     }
 
