@@ -46,11 +46,6 @@ jobs:
           customImage: 'unityci/editor:ubuntu-2021.3.37f1-android-3.1.0'
           androidExportType: androidPackage
           androidTargetSdkVersion: 32
-          androidKeystoreName: user.keystore
-          androidKeystoreBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          androidKeystorePass: ${{ secrets.ANDROID_KEYSTORE_PASS }}
-          androidKeyaliasName: ${{ secrets.ANDROID_KEYALIAS_NAME }}
-          androidKeyaliasPass: ${{ secrets.ANDROID_KEYALIAS_PASS }}
           
       # Export
       - name: Export Project
@@ -66,11 +61,6 @@ jobs:
           allowDirtyBuild: true
           androidExportType: androidStudioProject
           androidTargetSdkVersion: 32
-          androidKeystoreName: qcxr.keystore
-          androidKeystoreBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          androidKeystorePass: ${{ secrets.ANDROID_KEYSTORE_PASS }}
-          androidKeyaliasName: ${{ secrets.ANDROID_KEYALIAS_NAME }}
-          androidKeyaliasPass: ${{ secrets.ANDROID_KEYALIAS_PASS }}
         
       # Upload exported Android Studio project
       - uses: actions/upload-artifact@v4
@@ -85,7 +75,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          repository: QuestCraftPlusPlus/Wrapper-IL2CPP
+          repository: thewiilover/Wrapper-IL2CPP
           token: ${{ secrets.PERSONAL_TOKEN }}
       - name: Grab IL2CPP changes
         uses: actions/download-artifact@v4
@@ -110,5 +100,5 @@ jobs:
       - name: Push changes
         uses: ad-m/github-push-action@master
         with:
-          repository: QuestCraftPlusPlus/Wrapper-IL2CPP
+          repository: thewiilover/Wrapper-IL2CPP
           github_token: ${{ secrets.PERSONAL_TOKEN }}
