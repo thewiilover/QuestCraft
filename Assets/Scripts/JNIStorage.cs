@@ -21,9 +21,14 @@ public class JNIStorage : MonoBehaviour
     private void Start()
     {
         instance = this;
-        
-        Microphone.Start(Microphone.devices[0], true, 1, 44100);
-        apiClass = new AndroidJavaClass("pojlib.api.API_V1");
+
+        // If the user has not granted Microphone permission, don't try to start the clip.
+        if (Microphone.devices.Length != 0)
+        {
+            Microphone.Start(Microphone.devices[0], true, 1, 44100);
+        }
+
+        apiClass = new AndroidJavaClass("pojlib.API");
         instancesObj = apiClass.CallStatic<AndroidJavaObject>("loadAll");
         apiClass.SetStatic("developerMods", _devToggle.isOn);
         UpdateInstances();
