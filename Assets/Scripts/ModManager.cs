@@ -332,7 +332,7 @@ public class ModManager : MonoBehaviour
             AndroidJavaObject instance = LoadInstance();
             if (instance == null) return;
 
-            JNIStorage.apiClass.CallStatic<AndroidJavaObject>("createNewInstance", JNIStorage.activity, JNIStorage.instancesObj, mp.title, mp.icon_url, path);
+            JNIStorage.apiClass.CallStatic<AndroidJavaObject>("createNewInstance", JNIStorage.activity, JNIStorage.instancesObj, mp.title, mp.icon_url, "Fabric", path);
             JNIStorage.instance.uiHandler.SetAndShowError(mp.title + " is now being created.");
             JNIStorage.instance.UpdateInstances();
         };
@@ -366,7 +366,7 @@ public class ModManager : MonoBehaviour
                     foreach (var depFile in validDepFiles)
                     {
                         PojlibInstance currInst = JNIStorage.GetInstance(InstanceButton.currInstName);
-                        JNIStorage.apiClass.CallStatic("addExtraProject", JNIStorage.instancesObj, currInst.raw, slug, currentInstanceVer, depFile.url, mp.project_type);
+                        JNIStorage.apiClass.CallStatic("addExtraProject", JNIStorage.instancesObj, currInst.raw, slug, depInfo.version_number, depFile.url, mp.project_type);
                         Debug.Log($"Downloading Dep with file url {depFile.url}");
                         break;
                     }
@@ -375,7 +375,7 @@ public class ModManager : MonoBehaviour
         }
 
         PojlibInstance inst = JNIStorage.GetInstance(InstanceButton.currInstName);
-        JNIStorage.apiClass.CallStatic("addExtraProject", JNIStorage.instancesObj, inst.raw, mp.slug, currentInstanceVer, modUrl, mp.project_type);
+        JNIStorage.apiClass.CallStatic("addExtraProject", JNIStorage.instancesObj, inst.raw, mp.slug, metaInfo.version_number, modUrl, mp.project_type);
         UpdateUIAfterModAddition(mp.slug);
     }
 
